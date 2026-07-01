@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { Minimize2, Maximize2, X, Bot, Notebook, CheckSquare, Calculator, Sparkles, Move } from "lucide-react";
+import { Minimize2, Maximize2, X, Bot, Notebook, CheckSquare, Calculator, Sparkles, Move, Boxes, Folder, Palette, Receipt } from "lucide-react";
 import { WindowInstance } from "../types";
 import { motion } from "motion/react";
 
@@ -118,6 +118,14 @@ export default function DesktopWindow({
         return <CheckSquare {...props} className="text-indigo-400" />;
       case "Calculator":
         return <Calculator {...props} className="text-emerald-400" />;
+      case "Boxes":
+        return <Boxes {...props} className="text-blue-400" />;
+      case "Folder":
+        return <Folder {...props} className="text-amber-500" />;
+      case "Palette":
+        return <Palette {...props} className="text-pink-400" />;
+      case "Receipt":
+        return <Receipt {...props} className="text-teal-400" />;
       default:
         return <Sparkles {...props} className="text-blue-400" />;
     }

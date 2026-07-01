@@ -37,8 +37,35 @@ export interface ChatMessage {
 
 export type ThemeType = "slate" | "ocean" | "cosmic" | "emerald";
 
+export interface FileSystemItem {
+  id: string;
+  name: string;
+  type: "file" | "folder";
+  content?: string;
+  parentId: string | null;
+  createdAt: string;
+  size?: string;
+  extension?: "txt" | "json" | "note" | "task";
+}
+
 export interface SystemConfig {
   theme: ThemeType;
   wallpaper: string;
   soundEnabled: boolean;
 }
+
+export interface Currency {
+  code: string;
+  symbol: string;
+  name: string;
+  rate: number; // Conversion rate relative to 1 SAR
+}
+
+export const CURRENCIES: Currency[] = [
+  { code: "SAR", symbol: "ر.س", name: "ريال سعودي", rate: 1.0 },
+  { code: "USD", symbol: "$", name: "دولار أمريكي", rate: 0.266 },
+  { code: "EUR", symbol: "€", name: "يورو", rate: 0.25 },
+  { code: "AED", symbol: "د.إ", name: "درهم إماراتي", rate: 0.98 },
+  { code: "EGP", symbol: "ج.م", name: "جنيه مصري", rate: 12.5 }
+];
+

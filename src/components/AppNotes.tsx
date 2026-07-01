@@ -31,6 +31,20 @@ export default function AppNotes() {
     localStorage.setItem("workspace_notes", JSON.stringify(notes));
   }, [notes]);
 
+  // Listen to open-item events for quick navigation from global search
+  useEffect(() => {
+    const handleOpenItem = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.app === "notes") {
+        setActiveId(customEvent.detail.id);
+      }
+    };
+    window.addEventListener("open-item", handleOpenItem);
+    return () => {
+      window.removeEventListener("open-item", handleOpenItem);
+    };
+  }, []);
+
   const activeNote = notes.find((n) => n.id === activeId) || notes[0];
 
   const handleCreateNote = () => {
