@@ -1,0 +1,8 @@
+{
+  "name": "نظام مساحة العمل التفاعلي",
+  "description": "بيئة عمل متكاملة بنظام النوافذ التفاعلية تحتوي على مساعد ذكاء اصطناعي، مدير مهام، مفكرة ذكية، وحاسبة متقدمة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
