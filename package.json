@@ -1,37 +1,30 @@
-{
-  "name": "react-example",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+
+"main": "dist-electron/main.js",
+"scripts": {
+  "dev": "vite",
+  "build:web": "vite build",
+  "build:electron:dev": "tsc -p tsconfig.electron.json && electron .",
+  "build:electron": "npm run build:web && tsc -p tsconfig.electron.json && vite build --outDir dist && electron-builder --win",
+  "prepare:capacitor": "npm run build:web && npx cap sync",
+  "build:android": "npm run prepare:capacitor && npx cap open android"
+},
+"build": {
+  "appId": "com.yourcompany.neatwood",
+  "productName": "NeatWood",
+  "files": [
+    "dist/**",
+    "dist-electron/**",
+    "node_modules/**",
+    "package.json"
+  ],
+  "win": {
+    "target": ["nsis"],
+    "icon": "build/icons/win/icon.ico"
   },
-  "dependencies": {
-    "@google/genai": "^2.4.0",
-    "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
-    "dotenv": "^17.2.3",
-    "express": "^4.21.2",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "react-markdown": "^10.1.0",
-    "recharts": "^3.9.1",
-    "vite": "^6.2.3"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true
   }
 }
