@@ -21,10 +21,13 @@ import {
 } from "lucide-react";
 import { FileSystemItem, Note, Task } from "../types";
 import { motion, AnimatePresence } from "motion/react";
+import { triggerToast } from "../utils/toast";
+import ReactMarkdown from "react-markdown";
+import { safeStorage } from "../utils/storage";
 
 export default function AppFiles() {
   const [items, setItems] = useState<FileSystemItem[]>(() => {
-    const saved = localStorage.getItem("workspace_files");
+    const saved = safeStorage.getItem("workspace_files");
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -75,6 +78,75 @@ export default function AppFiles() {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
+  // Drag and drop states
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedItemId(id);
+    e.dataTransfer.setData("text/plain", id);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetFolderId: string | null) => {
+    e.preventDefault();
+    const itemId = e.dataTransfer.getData("text/plain") || draggedItemId;
+    if (!itemId) return;
+
+    if (itemId === targetFolderId) {
+      triggerToast(
+        safeStorage.getItem("workspace_language") === "ar"
+          ? "لا يمكن نقل المجلد إلى نفسه!"
+          : "Cannot move folder to itself!",
+        "warning"
+      );
+      return;
+    }
+
+    // Verify targetFolderId is not a child of itemId
+    const checkIsChild = (parentFolderId: string, searchFolderId: string | null): boolean => {
+      if (!searchFolderId) return false;
+      const folder = items.find((f) => f.id === searchFolderId);
+      if (!folder) return false;
+      if (folder.parentId === parentFolderId) return true;
+      return checkIsChild(parentFolderId, folder.parentId);
+    };
+
+    if (checkIsChild(itemId, targetFolderId)) {
+      triggerToast(
+        safeStorage.getItem("workspace_language") === "ar"
+          ? "لا يمكن نقل المجلد داخل أحد المجلدات الفرعية التابعة له!"
+          : "Cannot move a folder inside one of its own subfolders!",
+        "warning"
+      );
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? { ...item, parentId: targetFolderId }
+          : item
+      )
+    );
+
+    const movedItem = items.find((item) => item.id === itemId);
+    const targetFolder = items.find((f) => f.id === targetFolderId);
+    const targetFolderName = targetFolder ? targetFolder.name : "الرئيسية";
+
+    triggerToast(
+      safeStorage.getItem("workspace_language") === "ar"
+        ? `تم نقل "${movedItem?.name}" إلى "${targetFolderName}" بنجاح!`
+        : `Moved "${movedItem?.name}" to "${targetFolderName}" successfully!`,
+      "success"
+    );
+
+    setDraggedItemId(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
   
   // Modals / Create controls
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -85,10 +157,24 @@ export default function AppFiles() {
   // File viewer / Editor Modal
   const [editingFile, setEditingFile] = useState<FileSystemItem | null>(null);
   const [editingContent, setEditingContent] = useState("");
+  const [fileViewMode, setFileViewMode] = useState<"edit" | "preview">("edit");
 
   useEffect(() => {
-    localStorage.setItem("workspace_files", JSON.stringify(items));
+    safeStorage.setItem("workspace_files", JSON.stringify(items));
   }, [items]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      const saved = safeStorage.getItem("workspace_files");
+      if (saved) {
+        try {
+          setItems(JSON.parse(saved));
+        } catch (e) {}
+      }
+    };
+    window.addEventListener("workspace-update", handleUpdate);
+    return () => window.removeEventListener("workspace-update", handleUpdate);
+  }, []);
 
   // Listen to open-item events for quick navigation from global search
   useEffect(() => {
@@ -173,20 +259,46 @@ export default function AppFiles() {
   };
 
   const handleDeleteItem = (id: string) => {
-    if (confirm("هل تريد بالتأكيد حذف هذا العنصر؟ سيتم حذف جميع الملفات داخله إذا كان مجلداً.")) {
-      // Recursive delete logic for folders
-      const getIdsToDelete = (targetId: string): string[] => {
-        const children = items.filter((item) => item.parentId === targetId);
-        let ids = [targetId];
-        children.forEach((child) => {
-          ids = [...ids, ...getIdsToDelete(child.id)];
-        });
-        return ids;
-      };
+    const itemToDelete = items.find((item) => item.id === id);
+    if (itemToDelete) {
+      if (confirm(`هل تريد بالتأكيد نقل "${itemToDelete.name}" إلى سلة المهملات؟`)) {
+        // Recursive delete logic for folders
+        const getIdsToDelete = (targetId: string): string[] => {
+          const children = items.filter((item) => item.parentId === targetId);
+          let ids = [targetId];
+          children.forEach((child) => {
+            ids = [...ids, ...getIdsToDelete(child.id)];
+          });
+          return ids;
+        };
 
-      const idsToDelete = getIdsToDelete(id);
-      setItems((prev) => prev.filter((item) => !idsToDelete.includes(item.id)));
-      if (selectedItemId === id) setSelectedItemId(null);
+        const idsToDelete = getIdsToDelete(id);
+        const subItems = items.filter((item) => idsToDelete.includes(item.id));
+
+        try {
+          const trash = JSON.parse(safeStorage.getItem("workspace_trash") || "[]");
+          const newTrashItem = {
+            id: "trash_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+            originalId: itemToDelete.id,
+            name: itemToDelete.name,
+            type: itemToDelete.type,
+            deletedAt: new Date().toLocaleDateString("ar-EG") + " " + new Date().toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }),
+            originalData: {
+              item: itemToDelete,
+              subItems: subItems
+            }
+          };
+          safeStorage.setItem("workspace_trash", JSON.stringify([...trash, newTrashItem]));
+          window.dispatchEvent(new Event("workspace-update"));
+        } catch (e) {}
+
+        setItems((prev) => prev.filter((item) => !idsToDelete.includes(item.id)));
+        if (selectedItemId === id) setSelectedItemId(null);
+        triggerToast(
+          safeStorage.getItem("workspace_language") === "ar" ? "تم نقل العنصر إلى سلة المهملات" : "Item moved to trash bin",
+          "info"
+        );
+      }
     }
   };
 
@@ -209,7 +321,7 @@ export default function AppFiles() {
 
   // Import Active Notes
   const handleImportNotes = () => {
-    const activeNotesRaw = localStorage.getItem("workspace_notes");
+    const activeNotesRaw = safeStorage.getItem("workspace_notes");
     if (!activeNotesRaw) {
       alert("لم يتم العثور على أي ملاحظات للاستيراد!");
       return;
@@ -258,7 +370,7 @@ export default function AppFiles() {
 
   // Import Tasks Summary
   const handleImportTasks = () => {
-    const activeTasksRaw = localStorage.getItem("workspace_tasks");
+    const activeTasksRaw = safeStorage.getItem("workspace_tasks");
     if (!activeTasksRaw) {
       alert("لم يتم العثور على أي مهام نشطة حالياً!");
       return;
@@ -390,7 +502,11 @@ export default function AppFiles() {
           <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
             <button
               onClick={() => handleNavigate(null)}
-              className={`hover:text-blue-600 dark:hover:text-blue-400 transition ${currentFolderId === null ? "text-slate-800 dark:text-slate-100 font-bold" : ""}`}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, null)}
+              className={`hover:text-blue-600 dark:hover:text-blue-400 transition rounded px-1 ${
+                dragOverFolderId === null && draggedItemId ? "bg-blue-500/20 border border-dashed border-blue-400" : ""
+              } ${currentFolderId === null ? "text-slate-800 dark:text-slate-100 font-bold" : ""}`}
             >
               الرئيسية
             </button>
@@ -402,8 +518,12 @@ export default function AppFiles() {
                 </span>
                 <button
                   onClick={() => handleNavigate(currentFolder?.parentId || null)}
-                  className="mr-2 p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
-                  title="رجوع للمجلد الأعلى"
+                  onDragOver={handleDragOver}
+                  onDrop={(e) => handleDrop(e, currentFolder?.parentId || null)}
+                  className={`mr-2 p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 ${
+                    draggedItemId ? "bg-indigo-500/10 border border-dashed border-indigo-400/40 animate-pulse" : ""
+                  }`}
+                  title="رجوع للمجلد الأعلى أو إسقاط الملف هنا لنقله"
                 >
                   <ArrowRight size={13} />
                 </button>
@@ -524,8 +644,12 @@ export default function AppFiles() {
           {currentItems.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 py-12">
               <Folder size={32} className="text-slate-300 mb-2" />
-              <p className="text-xs">المجلد فارغ تماماً</p>
-              <p className="text-[10px] text-slate-400 mt-1">ابدأ بإنشاء مجلد أو ملف نصي جديد</p>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                {searchQuery.trim() !== "" ? `لا توجد نتائج مطابقة لـ "${searchQuery}"` : "المجلد فارغ تماماً"}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-1">
+                {searchQuery.trim() !== "" ? "تأكد من كتابة اسم الملف أو المجلد بشكل صحيح داخل هذا المجلد" : "ابدأ بإنشاء مجلد أو ملف نصي جديد"}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -534,6 +658,25 @@ export default function AppFiles() {
                 return (
                   <div
                     key={item.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, item.id)}
+                    onDragOver={(e) => {
+                      if (item.type === "folder") {
+                        e.preventDefault();
+                        setDragOverFolderId(item.id);
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (item.type === "folder") {
+                        setDragOverFolderId(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      if (item.type === "folder") {
+                        setDragOverFolderId(null);
+                        handleDrop(e, item.id);
+                      }
+                    }}
                     onClick={() => setSelectedItemId(item.id)}
                     onDoubleClick={() => {
                       if (item.type === "folder") {
@@ -541,10 +684,13 @@ export default function AppFiles() {
                       } else {
                         setEditingFile(item);
                         setEditingContent(item.content || "");
+                        setFileViewMode(item.extension === "md" || item.name.endsWith(".md") ? "preview" : "edit");
                       }
                     }}
-                    className={`p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between group h-28 relative ${
-                      isSelected
+                    className={`p-3 rounded-xl border transition cursor-grab active:cursor-grabbing flex flex-col justify-between group h-28 relative ${
+                      dragOverFolderId === item.id
+                        ? "bg-blue-100 dark:bg-blue-900/40 border-blue-600 scale-[1.02] shadow-md ring-2 ring-blue-500/30"
+                        : isSelected
                         ? "bg-blue-50/70 dark:bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/10"
                         : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800/80 hover:border-blue-300 dark:hover:border-blue-700 shadow-sm"
                     }`}
@@ -588,24 +734,38 @@ export default function AppFiles() {
               <div className="bg-slate-50 dark:bg-slate-850 px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                   <FileText size={16} className="text-emerald-500" />
-                  <span className="text-xs font-bold truncate max-w-[250px]">{editingFile.name}</span>
+                  <span className="text-xs font-bold truncate max-w-[180px]">{editingFile.name}</span>
                 </div>
-                <button
-                  onClick={() => setEditingFile(null)}
-                  className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-600 transition"
-                >
-                  <X size={14} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setFileViewMode(fileViewMode === "edit" ? "preview" : "edit")}
+                    className="px-2.5 py-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 hover:text-blue-600 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  >
+                    {fileViewMode === "edit" ? "معاينة المنسق (Markdown)" : "تحرير النص الخام"}
+                  </button>
+                  <button
+                    onClick={() => setEditingFile(null)}
+                    className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-600 transition"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               </div>
 
-              {/* Text Area Content */}
-              <div className="flex-1 p-4">
-                <textarea
-                  value={editingContent}
-                  onChange={(e) => setEditingContent(e.target.value)}
-                  placeholder="اكتب محتوى الملف النصي هنا..."
-                  className="w-full h-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 rounded-xl p-3 text-xs leading-relaxed focus:outline-none resize-none text-slate-850 dark:text-slate-200"
-                />
+              {/* Text Area Content or Markdown Viewer */}
+              <div className="flex-1 p-4 overflow-hidden flex flex-col">
+                {fileViewMode === "edit" ? (
+                  <textarea
+                    value={editingContent}
+                    onChange={(e) => setEditingContent(e.target.value)}
+                    placeholder="اكتب محتوى الملف النصي هنا..."
+                    className="w-full h-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 rounded-xl p-3 text-xs leading-relaxed focus:outline-none resize-none text-slate-850 dark:text-slate-200 flex-1"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-xs leading-relaxed overflow-y-auto text-slate-850 dark:text-slate-200 prose dark:prose-invert max-w-none flex-1">
+                    <ReactMarkdown>{editingContent || "*الملف فارغ*"}</ReactMarkdown>
+                  </div>
+                )}
               </div>
 
               {/* Save Footer */}

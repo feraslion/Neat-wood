@@ -88,6 +88,111 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
   const [profitMargin, setProfitMargin] = useState<number>(40); // default 40% net profit margin
   const [activeTab, setActiveTab] = useState<"monthly" | "annual" | "categories" | "table">("monthly");
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [pdfTimeRange, setPdfTimeRange] = useState<"week" | "month" | "year" | "all">("all");
+
+  // Format date parts to parse year and month from Arabic string
+  const parseInvoiceDate = (dateStr: string) => {
+    // Standardize arabic numerals if any
+    const normalized = dateStr
+      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+      .trim();
+    
+    // Parse parts "d/m/yyyy" or "dd/mm/yyyy" or "yyyy-mm-dd"
+    const parts = normalized.split(/[\/\-]/);
+    if (parts.length === 3) {
+      let day = parseInt(parts[0]);
+      let month = parseInt(parts[1]);
+      let year = parseInt(parts[2]);
+      
+      // If year is the first part (yyyy/mm/dd)
+      if (parts[0].length === 4) {
+        year = parseInt(parts[0]);
+        month = parseInt(parts[1]);
+        day = parseInt(parts[2]);
+      }
+      return { day, month, year };
+    }
+    return { day: 1, month: 7, year: 2026 }; // default fallback
+  };
+
+  // Filter paid invoices
+  const paidInvoices = invoices.filter((inv) => inv.status === "paid");
+
+  const getFilteredInvoicesForPDF = (range: "week" | "month" | "year" | "all") => {
+    if (range === "all") return paidInvoices;
+
+    const now = new Date();
+    return paidInvoices.filter((inv) => {
+      const { day, month, year } = parseInvoiceDate(inv.date);
+      const invDate = new Date(year, month - 1, day);
+      const diffTime = now.getTime() - invDate.getTime();
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+      if (range === "week") {
+        return diffDays >= 0 && diffDays <= 7;
+      } else if (range === "month") {
+        return diffDays >= 0 && diffDays <= 30;
+      } else if (range === "year") {
+        return diffDays >= 0 && diffDays <= 365;
+      }
+      return true;
+    });
+  };
+
+  const pdfInvoices = getFilteredInvoicesForPDF(pdfTimeRange);
+  const pdfTotalRevenue = pdfInvoices.reduce((sum, inv) => sum + (inv.totalAmount * activeCurrency.rate), 0);
+  const pdfTotalProfit = pdfTotalRevenue * (profitMargin / 100);
+  const pdfAverageInvoice = pdfInvoices.length > 0 ? (pdfTotalRevenue / pdfInvoices.length) : 0;
+
+  const getPdfMonthlyData = () => {
+    const groups: { [key: string]: { revenue: number; profit: number; count: number } } = {};
+    pdfInvoices.forEach((inv) => {
+      const { month, year } = parseInvoiceDate(inv.date);
+      const key = `${year}-${String(month).padStart(2, "0")}`;
+      if (!groups[key]) {
+        groups[key] = { revenue: 0, profit: 0, count: 0 };
+      }
+      const revenueConverted = inv.totalAmount * activeCurrency.rate;
+      groups[key].revenue += revenueConverted;
+      groups[key].profit += revenueConverted * (profitMargin / 100);
+      groups[key].count += 1;
+    });
+
+    const sortedKeys = Object.keys(groups).sort();
+    if (sortedKeys.length === 0) return [];
+
+    return sortedKeys.map((key) => {
+      const [year, month] = key.split("-");
+      const monthIdx = parseInt(month) - 1;
+      const monthName = `${MONTHS_AR[monthIdx]} ${year}`;
+      return {
+        monthName,
+        revenue: parseFloat(groups[key].revenue.toFixed(2)),
+        profit: parseFloat(groups[key].profit.toFixed(2)),
+        count: groups[key].count
+      };
+    });
+  };
+
+  const getPdfCategoryData = () => {
+    const categories: { [key: string]: number } = {};
+    pdfInvoices.forEach((inv) => {
+      inv.items.forEach((item) => {
+        const prod = inventory.find((p) => p.id === item.productId);
+        const cat = prod?.category || "عام";
+        const itemTotalConverted = (item.price * item.quantity) * activeCurrency.rate;
+        categories[cat] = (categories[cat] || 0) + itemTotalConverted;
+      });
+    });
+
+    return Object.keys(categories).map((cat) => ({
+      name: cat,
+      value: parseFloat(categories[cat].toFixed(2))
+    }));
+  };
+
+  const pdfMonthlyData = getPdfMonthlyData();
+  const pdfCategoryData = getPdfCategoryData();
 
   // Load data from localStorage on mount and when profile changes
   const loadData = () => {
@@ -119,34 +224,6 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
     window.addEventListener("storage", loadData);
     return () => window.removeEventListener("storage", loadData);
   }, [activeProfile, activeTab]);
-
-  // Filter paid invoices
-  const paidInvoices = invoices.filter((inv) => inv.status === "paid");
-
-  // Format date parts to parse year and month from Arabic string
-  const parseInvoiceDate = (dateStr: string) => {
-    // Standardize arabic numerals if any
-    const normalized = dateStr
-      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
-      .trim();
-    
-    // Parse parts "d/m/yyyy" or "dd/mm/yyyy" or "yyyy-mm-dd"
-    const parts = normalized.split(/[\/\-]/);
-    if (parts.length === 3) {
-      let day = parseInt(parts[0]);
-      let month = parseInt(parts[1]);
-      let year = parseInt(parts[2]);
-      
-      // If year is the first part (yyyy/mm/dd)
-      if (parts[0].length === 4) {
-        year = parseInt(parts[0]);
-        month = parseInt(parts[1]);
-        day = parseInt(parts[2]);
-      }
-      return { day, month, year };
-    }
-    return { day: 1, month: 7, year: 2026 }; // default fallback
-  };
 
   // Group invoices by Month for Monthly Chart
   const getMonthlyData = () => {
@@ -605,11 +682,27 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
       {showPrintModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-4xl flex flex-col max-h-[90vh] shadow-2xl overflow-hidden animate-in fade-in-50 zoom-in-95">
-            <div className="flex justify-between items-center bg-slate-950/60 border-b border-slate-850 p-4 shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-950/60 border-b border-slate-850 p-4 shrink-0 gap-3">
               <div className="flex items-center gap-2 text-indigo-400">
                 <FileText size={16} />
-                <span className="text-xs font-bold text-slate-200">تقرير الأداء المالي والربحي الموحد</span>
+                <span className="text-xs font-bold text-slate-200">تقرير الأداء المالي والربحي الموحد (تصدير PDF)</span>
               </div>
+              
+              {/* Dynamic PDF Time Range Filter UI */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-400 font-bold">نطاق التقرير:</span>
+                <select
+                  value={pdfTimeRange}
+                  onChange={(e) => setPdfTimeRange(e.target.value as any)}
+                  className="bg-slate-950 border border-slate-800 text-[11px] text-slate-200 rounded px-2.5 py-1 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="all">كل الفترات (الكل)</option>
+                  <option value="week">أسبوع (الـ 7 أيام الأخيرة)</option>
+                  <option value="month">شهر (الـ 30 يوماً الأخيرة)</option>
+                  <option value="year">سنة (الـ 365 يوماً الأخيرة)</option>
+                </select>
+              </div>
+
               <div className="flex items-center gap-2">
                 <button
                   onClick={triggerActualPrint}
@@ -634,12 +727,12 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
                 <div>
                   <h2 className="text-lg font-extrabold text-slate-900">مؤسسة الحلول المبتكرة للتقنية</h2>
                   <p className="text-[10px] text-slate-500 mt-1">المملكة العربية السعودية، الرياض</p>
-                  <p className="text-[10px] text-slate-500">تقرير الأداء المالي السنوي والربحية التقديرية المجمعة</p>
+                  <p className="text-[10px] text-slate-500">تقرير الأداء المالي والربحية التقديرية المجمعة</p>
                 </div>
 
                 <div className="text-left">
                   <span className="inline-block px-2.5 py-0.5 bg-blue-50 border border-blue-100 text-blue-700 rounded text-[9px] font-bold">
-                    مستند مالي داخلي سرّي
+                    مستند مالي داخلي سرّي ({pdfTimeRange === "all" ? "شامل" : pdfTimeRange === "week" ? "أسبوعي" : pdfTimeRange === "month" ? "شهري" : "سنوي"})
                   </span>
                   <p className="text-[10px] text-slate-600 mt-2 font-bold">تاريخ المستند: {new Date().toLocaleDateString("ar-EG")}</p>
                   <p className="text-[9px] text-slate-500">العملة النشطة: {activeCurrency.name} ({activeCurrency.symbol})</p>
@@ -651,19 +744,19 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
                 <div className="border border-slate-200 p-3 rounded-lg bg-slate-50">
                   <span className="text-[9px] text-slate-500 font-bold block">إجمالي المبيعات</span>
                   <span className="text-base font-extrabold text-blue-700 block mt-1">
-                    {totalRevenue.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {activeCurrency.symbol}
+                    {pdfTotalRevenue.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {activeCurrency.symbol}
                   </span>
                 </div>
                 <div className="border border-slate-200 p-3 rounded-lg bg-slate-50">
                   <span className="text-[9px] text-slate-500 font-bold block">الأرباح الصافية التقديرية</span>
                   <span className="text-base font-extrabold text-emerald-700 block mt-1">
-                    {totalProfit.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {activeCurrency.symbol}
+                    {pdfTotalProfit.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {activeCurrency.symbol}
                   </span>
                 </div>
                 <div className="border border-slate-200 p-3 rounded-lg bg-slate-50">
                   <span className="text-[9px] text-slate-500 font-bold block">متوسط السلة الشرائية</span>
                   <span className="text-base font-extrabold text-indigo-700 block mt-1">
-                    {averageInvoice.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {activeCurrency.symbol}
+                    {pdfAverageInvoice.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {activeCurrency.symbol}
                   </span>
                 </div>
                 <div className="border border-slate-200 p-3 rounded-lg bg-slate-50">
@@ -676,7 +769,7 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
 
               {/* Data Table */}
               <div className="mt-8">
-                <h4 className="text-xs font-bold text-slate-800 mb-3 border-r-4 border-indigo-600 pr-2">تحليل المبيعات الشهرية المجمعة</h4>
+                <h4 className="text-xs font-bold text-slate-800 mb-3 border-r-4 border-indigo-600 pr-2">تحليل المبيعات والفترات المجمعة</h4>
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <table className="w-full text-right text-[10px] border-collapse">
                     <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
@@ -688,18 +781,26 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {monthlyData.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="p-2 border-l border-slate-200 font-bold text-slate-800">{item.monthName}</td>
-                          <td className="p-2 text-center border-l border-slate-200">{item.count} فواتير ممتازة</td>
-                          <td className="p-2 border-l border-slate-200 font-bold text-blue-700">
-                            {item.revenue.toLocaleString("ar-EG")} {activeCurrency.symbol}
-                          </td>
-                          <td className="p-2 font-extrabold text-emerald-700">
-                            {item.profit.toLocaleString("ar-EG")} {activeCurrency.symbol}
+                      {pdfMonthlyData.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="text-center p-6 text-slate-400 font-bold">
+                            لا توجد فواتير مبيعات مسجلة في هذا النطاق الزمني المحدد.
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        pdfMonthlyData.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="p-2 border-l border-slate-200 font-bold text-slate-800">{item.monthName}</td>
+                            <td className="p-2 text-center border-l border-slate-200">{item.count} فواتير مكتملة</td>
+                            <td className="p-2 border-l border-slate-200 font-bold text-blue-700">
+                              {item.revenue.toLocaleString("ar-EG")} {activeCurrency.symbol}
+                            </td>
+                            <td className="p-2 font-extrabold text-emerald-700">
+                              {item.profit.toLocaleString("ar-EG")} {activeCurrency.symbol}
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -709,19 +810,25 @@ export default function AppReports({ activeCurrencyCode = "SAR", activeProfile =
               <div className="mt-8">
                 <h4 className="text-xs font-bold text-slate-800 mb-3 border-r-4 border-emerald-600 pr-2">توزيع المبيعات على تصنيف المواد</h4>
                 <div className="grid grid-cols-2 gap-4">
-                  {categoryData.map((entry, idx) => {
-                    const totalVal = categoryData.reduce((s, d) => s + d.value, 0);
-                    const percentage = totalVal > 0 ? ((entry.value / totalVal) * 100).toFixed(1) : "0.0";
-                    return (
-                      <div key={idx} className="border border-slate-200 p-2 rounded-lg flex justify-between items-center text-[10px]">
-                        <span className="font-bold text-slate-700">{entry.name}</span>
-                        <div className="text-left">
-                          <span className="font-bold text-slate-950 block">{entry.value.toLocaleString("ar-EG")} {activeCurrency.symbol}</span>
-                          <span className="text-[8px] text-slate-500 font-mono block">الحصة: {percentage}%</span>
+                  {pdfCategoryData.length === 0 ? (
+                    <div className="col-span-2 text-center p-4 border border-dashed border-slate-200 rounded text-slate-400">
+                      لا توجد فئات سلع مسجلة للفترة المحددة.
+                    </div>
+                  ) : (
+                    pdfCategoryData.map((entry, idx) => {
+                      const totalVal = pdfCategoryData.reduce((s, d) => s + d.value, 0);
+                      const percentage = totalVal > 0 ? ((entry.value / totalVal) * 100).toFixed(1) : "0.0";
+                      return (
+                        <div key={idx} className="border border-slate-200 p-2 rounded-lg flex justify-between items-center text-[10px]">
+                          <span className="font-bold text-slate-700">{entry.name}</span>
+                          <div className="text-left">
+                            <span className="font-bold text-slate-950 block">{entry.value.toLocaleString("ar-EG")} {activeCurrency.symbol}</span>
+                            <span className="text-[8px] text-slate-500 font-mono block">الحصة: {percentage}%</span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 

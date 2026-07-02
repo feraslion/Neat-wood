@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { Minimize2, Maximize2, X, Bot, Notebook, CheckSquare, Calculator, Sparkles, Move, Boxes, Folder, Palette, Receipt } from "lucide-react";
+import { Minimize2, Maximize2, X, Bot, Notebook, CheckSquare, Calculator, Sparkles, Move, Boxes, Folder, Palette, Receipt, Activity } from "lucide-react";
 import { WindowInstance } from "../types";
 import { motion } from "motion/react";
 
@@ -12,6 +12,7 @@ interface DesktopWindowProps {
   onMaximize: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number) => void;
+  openWindow?: (id: string) => void;
   children: React.ReactNode;
 }
 
@@ -23,6 +24,7 @@ export default function DesktopWindow({
   onMaximize,
   onMove,
   onResize,
+  openWindow,
   children,
 }: DesktopWindowProps) {
   const windowRef = useRef<HTMLDivElement>(null);
@@ -126,12 +128,28 @@ export default function DesktopWindow({
         return <Palette {...props} className="text-pink-400" />;
       case "Receipt":
         return <Receipt {...props} className="text-teal-400" />;
+      case "Activity":
+        return <Activity {...props} className="text-rose-400" />;
       default:
         return <Sparkles {...props} className="text-blue-400" />;
     }
   };
 
   if (window.isMinimized) return null;
+
+  const handleAnalyzeWithAI = (e: React.MouseEvent) => {
+    e.stopPropagation(); // prevent drag trigger
+    if (openWindow) {
+      openWindow("ai");
+    }
+    const event = new CustomEvent("analyze_window_context", {
+      detail: {
+        id: window.id,
+        title: window.title
+      }
+    });
+    globalThis.dispatchEvent(event);
+  };
 
   return (
     <motion.div
@@ -142,7 +160,7 @@ export default function DesktopWindow({
       transition={{ duration: 0.15 }}
       onMouseDown={() => onFocus(window.id)}
       style={{
-        zIndex: window.zIndex,
+        zIndex: window.zIndex + 10,
         width: window.isMaximized ? "100%" : `${window.width}px`,
         height: window.isMaximized ? "calc(100% - 64px)" : `${window.height}px`, // 64px accounts for taskbar height
         left: window.isMaximized ? "0" : `${window.x}px`,
@@ -164,6 +182,18 @@ export default function DesktopWindow({
         <div className="flex items-center gap-2">
           {renderIcon()}
           <span className="text-xs font-semibold text-slate-200">{window.title}</span>
+
+          {/* Analyze with AI Button (Only for other apps) */}
+          {window.id !== "ai" && window.id !== "calc" && window.id !== "settings" && (
+            <button
+              onClick={handleAnalyzeWithAI}
+              className="mr-3 px-2 py-0.5 rounded bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 text-[9px] font-bold flex items-center gap-1 transition cursor-pointer"
+              title="تحليل محتوى هذه النافذة بواسطة مساعد الذكاء الاصطناعي"
+            >
+              <Sparkles size={10} className="animate-pulse" />
+              <span>تحليل ذكي</span>
+            </button>
+          )}
         </div>
 
         {/* Window controls */}

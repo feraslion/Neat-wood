@@ -18,6 +18,10 @@ export interface Task {
   completed: boolean;
   category: "work" | "personal" | "ideas" | "urgent";
   createdAt: string;
+  dueDate?: string;
+  dueTime?: string;
+  notified?: boolean;
+  recurrence?: "none" | "daily" | "weekly" | "monthly";
 }
 
 export interface Note {
@@ -45,7 +49,7 @@ export interface FileSystemItem {
   parentId: string | null;
   createdAt: string;
   size?: string;
-  extension?: "txt" | "json" | "note" | "task";
+  extension?: "txt" | "json" | "note" | "task" | "md";
 }
 
 export interface SystemConfig {
@@ -68,4 +72,23 @@ export const CURRENCIES: Currency[] = [
   { code: "AED", symbol: "د.إ", name: "درهم إماراتي", rate: 0.98 },
   { code: "EGP", symbol: "ج.م", name: "جنيه مصري", rate: 12.5 }
 ];
+
+export interface DesktopIcon {
+  id: string;
+  titleAr: string;
+  titleEn: string;
+  iconName: string;
+  x: number;
+  y: number;
+}
+
+export interface KeyboardShortcut {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  key: string;
+}
 

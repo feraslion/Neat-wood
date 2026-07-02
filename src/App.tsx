@@ -15,6 +15,7 @@ import {
   HelpCircle,
   LayoutGrid,
   Monitor,
+  Activity,
   Volume2,
   VolumeX,
   Palette,
@@ -28,9 +29,11 @@ import {
   Trash,
   Check,
   AlertTriangle,
-  Info
+  Info,
+  Lock,
+  LogOut
 } from "lucide-react";
-import { WindowInstance } from "./types";
+import { WindowInstance, DesktopIcon, KeyboardShortcut } from "./types";
 import DesktopWindow from "./components/DesktopWindow";
 import AppAI from "./components/AppAI";
 import AppTasks from "./components/AppTasks";
@@ -41,8 +44,88 @@ import AppFiles from "./components/AppFiles";
 import AppInventory from "./components/AppInventory";
 import AppInvoices from "./components/AppInvoices";
 import AppReports from "./components/AppReports";
+import AppSystemDashboard from "./components/AppSystemDashboard";
+import { LanguageCode, getTranslation } from "./utils/i18n";
+import LoginScreen from "./components/LoginScreen";
+import LockScreen from "./components/LockScreen";
+import DesktopIcons from "./components/DesktopIcons";
+import SwitchAccountModal from "./components/SwitchAccountModal";
+import { safeStorage } from "./utils/storage";
 
 export default function App() {
+  // Localization State
+  const [language, setLanguage] = useState<LanguageCode>(() => {
+    return (safeStorage.getItem("workspace_language") as LanguageCode) || "ar";
+  });
+
+  const handleLanguageChange = (lang: LanguageCode) => {
+    setLanguage(lang);
+    safeStorage.setItem("workspace_language", lang);
+  };
+
+  // User Session State (Welcome Screen check)
+  const [userSession, setUserSession] = useState<{ username: string; fullName: string } | null>(() => {
+    const activeUserStr = safeStorage.getItem("workspace_active_user");
+    if (activeUserStr) {
+      try {
+        return JSON.parse(activeUserStr);
+      } catch {}
+    }
+    const isRemembered = safeStorage.getItem("workspace_remember_me") === "true";
+    if (isRemembered) {
+      const lastUserStr = safeStorage.getItem("workspace_last_user");
+      try {
+        const u = lastUserStr ? JSON.parse(lastUserStr) : null;
+        if (u) {
+          safeStorage.setItem("workspace_active_user", JSON.stringify(u));
+        }
+        return u;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  // Lock Screen State
+  const [isScreenLocked, setIsScreenLocked] = useState(false);
+
+  // Switch Account Modal State
+  const [showSwitchAccountModal, setShowSwitchAccountModal] = useState(false);
+
+  // Desktop Icons State
+  const [desktopIcons, setDesktopIcons] = useState<DesktopIcon[]>([]);
+
+  // Synchronize desktop icons when user session changes
+  useEffect(() => {
+    if (userSession) {
+      const saved = safeStorage.getItem("workspace_desktop_icons");
+      if (saved) {
+        try {
+          setDesktopIcons(JSON.parse(saved));
+          return;
+        } catch (e) {}
+      }
+      // Default positions
+      setDesktopIcons([
+        { id: "ai", titleAr: "المساعد الذكي", titleEn: "AI Assistant", iconName: "Bot", x: 24, y: 24 },
+        { id: "tasks", titleAr: "مدير المهام", titleEn: "Tasks Manager", iconName: "CheckSquare", x: 24, y: 120 },
+        { id: "notes", titleAr: "المفكرة", titleEn: "Smart Notes", iconName: "Notebook", x: 24, y: 216 },
+        { id: "calc", titleAr: "الحاسبة السريعة", titleEn: "Quick Calc", iconName: "Calculator", x: 24, y: 312 },
+        { id: "files", titleAr: "الملفات والكتب", titleEn: "File Manager", iconName: "Folder", x: 124, y: 24 },
+        { id: "inventory", titleAr: "المخزون والمستودع", titleEn: "Inventory", iconName: "Boxes", x: 124, y: 120 },
+        { id: "invoices", titleAr: "الفواتير والمبيعات", titleEn: "Invoices", iconName: "Receipt", x: 124, y: 216 },
+        { id: "reports", titleAr: "التقارير المالية", titleEn: "Reports", iconName: "TrendingUp", x: 124, y: 312 },
+        { id: "settings", titleAr: "إعدادات المظهر", titleEn: "Settings", iconName: "Palette", x: 124, y: 408 }
+      ]);
+    }
+  }, [userSession?.username]);
+
+  const handleUpdateDesktopIcons = (updated: DesktopIcon[]) => {
+    setDesktopIcons(updated);
+    safeStorage.setItem("workspace_desktop_icons", JSON.stringify(updated));
+  };
+
   // Current date & time for taskbar
   const [time, setTime] = useState("");
   const [dateStr, setDateStr] = useState("");
@@ -56,14 +139,14 @@ export default function App() {
     const updateTime = () => {
       const now = new Date();
       setTime(
-        now.toLocaleTimeString("ar-EG", {
+        now.toLocaleTimeString(language === "ar" ? "ar-EG" : "en-US", {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
         })
       );
       setDateStr(
-        now.toLocaleDateString("ar-EG", {
+        now.toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", {
           weekday: "long",
           year: "numeric",
           month: "long",
@@ -74,25 +157,25 @@ export default function App() {
     updateTime();
     const timer = setInterval(updateTime, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [language]);
 
   const [wallpaper, setWallpaper] = useState(() => {
-    return localStorage.getItem("workspace_wallpaper") || "bg-gradient-to-br from-slate-50 via-blue-50/40 to-slate-100";
+    return safeStorage.getItem("workspace_wallpaper") || "bg-gradient-to-br from-slate-50 via-blue-50/40 to-slate-100";
   });
 
   const handleSelectWallpaper = (val: string) => {
     setWallpaper(val);
-    localStorage.setItem("workspace_wallpaper", val);
+    safeStorage.setItem("workspace_wallpaper", val);
   };
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem("workspace_theme") === "dark";
+    return safeStorage.getItem("workspace_theme") === "dark";
   });
 
   const handleToggleTheme = () => {
     setIsDarkMode((prev) => {
       const next = !prev;
-      localStorage.setItem("workspace_theme", next ? "dark" : "light");
+      safeStorage.setItem("workspace_theme", next ? "dark" : "light");
       return next;
     });
   };
@@ -217,9 +300,22 @@ export default function App() {
         x: 180,
         y: 100,
       },
+      {
+        id: "system",
+        title: "لوحة تحكم النظام ومراقبة الأداء",
+        icon: "Activity",
+        isOpen: false,
+        isMinimized: false,
+        isMaximized: false,
+        zIndex: 1,
+        width: 600,
+        height: 540,
+        x: 280,
+        y: 80,
+      },
     ];
 
-    const saved = localStorage.getItem("workspace_windows");
+    const saved = safeStorage.getItem("workspace_windows");
     if (saved) {
       try {
         const parsed: WindowInstance[] = JSON.parse(saved);
@@ -268,6 +364,21 @@ export default function App() {
             y: 100,
           });
         }
+        if (!parsed.some((w) => w.id === "system")) {
+          parsed.push({
+            id: "system",
+            title: "لوحة تحكم النظام ومراقبة الأداء",
+            icon: "Activity",
+            isOpen: false,
+            isMinimized: false,
+            isMaximized: false,
+            zIndex: 1,
+            width: 600,
+            height: 540,
+            x: 280,
+            y: 80,
+          });
+        }
         return parsed;
       } catch (e) {
         // Fallback if parsing fails
@@ -278,13 +389,38 @@ export default function App() {
 
   // Save windows state to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem("workspace_windows", JSON.stringify(windows));
+    safeStorage.setItem("workspace_windows", JSON.stringify(windows));
   }, [windows]);
 
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [autoTheme, setAutoTheme] = useState(() => {
+    return safeStorage.getItem("workspace_auto_theme") === "true";
+  });
+
+  const [shortcuts, setShortcuts] = useState<KeyboardShortcut[]>(() => {
+    const saved = safeStorage.getItem("workspace_shortcuts");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [
+      { id: "open_ai", nameAr: "فتح المساعد الذكي", nameEn: "Open AI Assistant", ctrlKey: true, altKey: true, shiftKey: false, key: "A" },
+      { id: "open_tasks", nameAr: "فتح مدير المهام", nameEn: "Open Tasks Manager", ctrlKey: true, altKey: true, shiftKey: false, key: "T" },
+      { id: "open_notes", nameAr: "فتح المفكرة", nameEn: "Open Notes", ctrlKey: true, altKey: true, shiftKey: false, key: "N" },
+      { id: "open_calc", nameAr: "فتح الحاسبة", nameEn: "Open Calculator", ctrlKey: true, altKey: true, shiftKey: false, key: "C" },
+      { id: "open_files", nameAr: "فتح مدير الملفات", nameEn: "Open Files Manager", ctrlKey: true, altKey: true, shiftKey: false, key: "F" },
+      { id: "cascade", nameAr: "ترتيب النوافذ", nameEn: "Cascade Windows", ctrlKey: true, altKey: true, shiftKey: false, key: "R" },
+    ];
+  });
+
+  const handleUpdateShortcuts = (newShortcuts: KeyboardShortcut[]) => {
+    setShortcuts(newShortcuts);
+    safeStorage.setItem("workspace_shortcuts", JSON.stringify(newShortcuts));
+  };
 
   const [activeProfile, setActiveProfile] = useState(() => {
-    return localStorage.getItem("workspace_active_profile") || "default";
+    return safeStorage.getItem("workspace_active_profile") || "default";
   });
 
   interface ToastItem {
@@ -292,18 +428,20 @@ export default function App() {
     message: string;
     type: "success" | "warning" | "info" | "error";
     timestamp: string;
+    isTaskAlert?: boolean;
+    taskId?: string;
   }
 
   const [activeToasts, setActiveToasts] = useState<ToastItem[]>([]);
   const [notificationHistory, setNotificationHistory] = useState<ToastItem[]>(() => {
-    const saved = localStorage.getItem("workspace_notifications_history");
+    const saved = safeStorage.getItem("workspace_notifications_history");
     return saved ? JSON.parse(saved) : [];
   });
   const [showNotificationsDrawer, setShowNotificationsDrawer] = useState(false);
 
   const handleChangeProfile = (id: string) => {
     setActiveProfile(id);
-    localStorage.setItem("workspace_active_profile", id);
+    safeStorage.setItem("workspace_active_profile", id);
     const nameMap: Record<string, string> = {
       default: "المدير العام",
       sales: "كاشير المبيعات",
@@ -334,7 +472,7 @@ export default function App() {
       setActiveToasts((prev) => [...prev, newToast]);
       setNotificationHistory((prev) => {
         const updated = [newToast, ...prev].slice(0, 100);
-        localStorage.setItem("workspace_notifications_history", JSON.stringify(updated));
+        safeStorage.setItem("workspace_notifications_history", JSON.stringify(updated));
         return updated;
       });
 
@@ -347,13 +485,185 @@ export default function App() {
     return () => window.removeEventListener("system-toast", handleSystemToast as EventListener);
   }, []);
 
+  const handleToggleAutoTheme = () => {
+    setAutoTheme((prev) => {
+      const next = !prev;
+      safeStorage.setItem("workspace_auto_theme", next ? "true" : "false");
+      return next;
+    });
+  };
+
+  // Sunset & Sunrise theme checker (6 PM / 6 AM)
+  useEffect(() => {
+    if (!autoTheme) return;
+    
+    const checkThemeBasedOnTime = () => {
+      const currentHour = new Date().getHours();
+      const shouldBeDark = currentHour >= 18 || currentHour < 6; // 6:00 PM to 6:00 AM is night
+      
+      if (shouldBeDark !== isDarkMode) {
+        setIsDarkMode(shouldBeDark);
+        safeStorage.setItem("workspace_theme", shouldBeDark ? "dark" : "light");
+      }
+    };
+    
+    checkThemeBasedOnTime();
+    const interval = setInterval(checkThemeBasedOnTime, 10000); // Check every 10 seconds
+    return () => clearInterval(interval);
+  }, [autoTheme, isDarkMode]);
+
+  const playTaskDueAlertSound = () => {
+    if (!soundEnabled) return;
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const playTone = (freq: number, startDelay: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + startDelay);
+        gain.gain.setValueAtTime(0, ctx.currentTime + startDelay);
+        gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + startDelay + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startDelay + duration);
+        osc.start(ctx.currentTime + startDelay);
+        osc.stop(ctx.currentTime + startDelay + duration);
+      };
+
+      playTone(523.25, 0, 0.4);      // C5
+      playTone(659.25, 0.15, 0.4);   // E5
+      playTone(783.99, 0.3, 0.5);    // G5
+    } catch (e) {}
+  };
+
+  const triggerAdvancedTaskToast = (task: any) => {
+    const id = "toast_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+    const timestamp = new Date().toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+    const message = `تنبيه: حان موعد المهمة "${task.text}"!`;
+    const newToast: ToastItem = {
+      id,
+      message,
+      type: "warning",
+      timestamp,
+      isTaskAlert: true,
+      taskId: task.id,
+    };
+    
+    setActiveToasts((prev) => [...prev, newToast]);
+    setNotificationHistory((prev) => {
+      const updated = [newToast, ...prev].slice(0, 100);
+      safeStorage.setItem("workspace_notifications_history", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    const checkTaskAlerts = () => {
+      try {
+        const savedTasksRaw = safeStorage.getItem("workspace_tasks");
+        if (!savedTasksRaw) return;
+        const tasks: any[] = JSON.parse(savedTasksRaw);
+        
+        let hasChanges = false;
+        const now = new Date();
+        const currentDateString = now.toISOString().split("T")[0]; // YYYY-MM-DD
+        const currentHours = String(now.getHours()).padStart(2, "0");
+        const currentMinutes = String(now.getMinutes()).padStart(2, "0");
+        const currentTimeString = `${currentHours}:${currentMinutes}`; // HH:MM
+        
+        const updatedTasks = tasks.map((task) => {
+          if (task.completed || task.notified) return task;
+          
+          if (task.dueDate && task.dueTime) {
+            const isDueToday = task.dueDate === currentDateString;
+            const isPastToday = task.dueDate < currentDateString;
+            const isDueTimeOrPast = task.dueTime <= currentTimeString;
+            
+            if (isPastToday || (isDueToday && isDueTimeOrPast)) {
+              playTaskDueAlertSound();
+              triggerAdvancedTaskToast(task);
+              hasChanges = true;
+              return { ...task, notified: true };
+            }
+          }
+          return task;
+        });
+        
+        if (hasChanges) {
+          safeStorage.setItem("workspace_tasks", JSON.stringify(updatedTasks));
+          window.dispatchEvent(new Event("workspace-update"));
+        }
+      } catch (e) {
+        console.error("Error in task alarm manager loop:", e);
+      }
+    };
+    
+    const interval = setInterval(checkTaskAlerts, 5000);
+    return () => clearInterval(interval);
+  }, [soundEnabled]);
+
+  const handleCompleteTaskFromToast = (taskId: string, toastId: string) => {
+    try {
+      const savedTasksRaw = safeStorage.getItem("workspace_tasks");
+      if (savedTasksRaw) {
+        const tasks: any[] = JSON.parse(savedTasksRaw);
+        const updated = tasks.map((t) => t.id === taskId ? { ...t, completed: true } : t);
+        safeStorage.setItem("workspace_tasks", JSON.stringify(updated));
+        window.dispatchEvent(new Event("workspace-update"));
+        
+        window.dispatchEvent(
+          new CustomEvent("system-toast", {
+            detail: { message: "تم إنجاز المهمة بنجاح!", type: "success" },
+          })
+        );
+      }
+    } catch (e) {}
+    setActiveToasts((prev) => prev.filter((t) => t.id !== toastId));
+  };
+
+  const handleSnoozeTaskFromToast = (taskId: string, toastId: string) => {
+    try {
+      const savedTasksRaw = safeStorage.getItem("workspace_tasks");
+      if (savedTasksRaw) {
+        const tasks: any[] = JSON.parse(savedTasksRaw);
+        const updated = tasks.map((t) => {
+          if (t.id === taskId) {
+            const now = new Date();
+            const snoozedTime = new Date(now.getTime() + 5 * 60 * 1000); // add 5 mins
+            const snoozedHours = String(snoozedTime.getHours()).padStart(2, "0");
+            const snoozedMinutes = String(snoozedTime.getMinutes()).padStart(2, "0");
+            const snoozedTimeString = `${snoozedHours}:${snoozedMinutes}`;
+            const snoozedDateString = snoozedTime.toISOString().split("T")[0];
+
+            return {
+              ...t,
+              dueDate: snoozedDateString,
+              dueTime: snoozedTimeString,
+              notified: false,
+            };
+          }
+          return t;
+        });
+        safeStorage.setItem("workspace_tasks", JSON.stringify(updated));
+        window.dispatchEvent(new Event("workspace-update"));
+        
+        window.dispatchEvent(
+          new CustomEvent("system-toast", {
+            detail: { message: "تم تأجيل المهمة لمدة 5 دقائق بنجاح.", type: "info" },
+          })
+        );
+      }
+    } catch (e) {}
+    setActiveToasts((prev) => prev.filter((t) => t.id !== toastId));
+  };
+
   const [activeCurrencyCode, setActiveCurrencyCode] = useState(() => {
-    return localStorage.getItem("workspace_currency") || "SAR";
+    return safeStorage.getItem("workspace_currency") || "SAR";
   });
 
   const handleChangeCurrencyCode = (code: string) => {
     setActiveCurrencyCode(code);
-    localStorage.setItem("workspace_currency", code);
+    safeStorage.setItem("workspace_currency", code);
   };
 
   // Play a beautiful micro-interaction audio using synthesize patterns or web-audio api
@@ -486,6 +796,8 @@ export default function App() {
       { id: "files", title: "مدير الملفات والمستندات", desc: "نظم ملفاتك محلياً واستورد الملاحظات والمهام", icon: Folder, action: () => openWindow("files") },
       { id: "inventory", title: "إدارة المخازن والمخزون الذكي", desc: "أضف منتجاتك، تتبع الكميات والأسعار وتنبيهات النفاد", icon: Boxes, action: () => openWindow("inventory") },
       { id: "invoices", title: "إدارة الفواتير والمبيعات", desc: "أنشئ فواتير جديدة، حدد العميل والمنتجات، واحسب الإجمالي", icon: Receipt, action: () => openWindow("invoices") },
+      { id: "reports", title: "التقارير والتحليلات المالية", desc: "تتبع الإحصائيات والأرباح والمصاريف والرسوم البيانية", icon: TrendingUp, action: () => openWindow("reports") },
+      { id: "system", title: "لوحة تحكم النظام ومراقبة الأداء", desc: "تتبع استهلاك المعالج والذاكرة (RAM) وإدارة التطبيقات المفتوحة وإغلاقها قسرياً", icon: Activity, action: () => openWindow("system") },
       { id: "settings", title: "إعدادات المظهر والتحكم", desc: "تخصيص مظهر مساحة العمل والتحكم بالنظام", icon: Palette, action: () => openWindow("settings") },
     ];
 
@@ -523,9 +835,9 @@ export default function App() {
       }
     });
 
-    // 2. Match Notes (read from localStorage)
+    // 2. Match Notes (read from safeStorage)
     try {
-      const savedNotesRaw = localStorage.getItem("workspace_notes");
+      const savedNotesRaw = safeStorage.getItem("workspace_notes");
       if (savedNotesRaw) {
         const savedNotes = JSON.parse(savedNotesRaw);
         savedNotes.forEach((note: any) => {
@@ -558,7 +870,7 @@ export default function App() {
 
     // 3. Match Tasks
     try {
-      const savedTasksRaw = localStorage.getItem("workspace_tasks");
+      const savedTasksRaw = safeStorage.getItem("workspace_tasks");
       if (savedTasksRaw) {
         const savedTasks = JSON.parse(savedTasksRaw);
         savedTasks.forEach((task: any) => {
@@ -582,7 +894,7 @@ export default function App() {
 
     // 4. Match Files
     try {
-      const savedFilesRaw = localStorage.getItem("workspace_files");
+      const savedFilesRaw = safeStorage.getItem("workspace_files");
       if (savedFilesRaw) {
         const savedFiles = JSON.parse(savedFilesRaw);
         savedFiles.forEach((file: any) => {
@@ -625,39 +937,40 @@ export default function App() {
         return;
       }
 
-      if (e.ctrlKey && e.altKey) {
-        const key = e.key.toLowerCase();
+      // Match dynamic custom shortcuts
+      const matched = shortcuts.find((shortcut) => {
+        const ctrlMatch = e.ctrlKey === shortcut.ctrlKey;
+        const altMatch = e.altKey === shortcut.altKey;
+        const shiftMatch = e.shiftKey === shortcut.shiftKey;
         
-        // Ctrl+Alt+A (ش): المساعد الذكي
-        if (key === "a" || key === "ش" || e.code === "KeyA") {
-          e.preventDefault();
-          openWindow("ai");
-        }
-        // Ctrl+Alt+T (ف): مدير المهام
-        else if (key === "t" || key === "ف" || e.code === "KeyT") {
-          e.preventDefault();
-          openWindow("tasks");
-        }
-        // Ctrl+Alt+N (ى): مفكرة النصوص
-        else if (key === "n" || key === "ى" || e.code === "KeyN") {
-          e.preventDefault();
-          openWindow("notes");
-        }
-        // Ctrl+Alt+C (ؤ): الحاسبة
-        else if (key === "c" || key === "ؤ" || e.code === "KeyC") {
-          e.preventDefault();
-          openWindow("calc");
-        }
-        // Ctrl+Alt+F (ب): مدير الملفات
-        else if (key === "f" || key === "ب" || e.code === "KeyF") {
-          e.preventDefault();
-          openWindow("files");
-        }
-        // Ctrl+Alt+R (ق): ترتيب النوافذ
-        else if (key === "r" || key === "ق" || e.code === "KeyR") {
-          e.preventDefault();
-          cascadeWindows();
-        }
+        const keyChar = e.key.toLowerCase();
+        const targetChar = shortcut.key.toLowerCase();
+        const codeName = "key" + targetChar;
+        
+        // Also check standard Arabic equivalent letters
+        let arabicChar = "";
+        if (targetChar === "a") arabicChar = "ش";
+        else if (targetChar === "t") arabicChar = "ف";
+        else if (targetChar === "n") arabicChar = "ى";
+        else if (targetChar === "c") arabicChar = "ؤ";
+        else if (targetChar === "f") arabicChar = "ب";
+        else if (targetChar === "r") arabicChar = "ق";
+
+        const keyMatch = keyChar === targetChar || 
+                         (arabicChar && keyChar === arabicChar) || 
+                         e.code.toLowerCase() === codeName;
+        
+        return ctrlMatch && altMatch && shiftMatch && keyMatch;
+      });
+
+      if (matched) {
+        e.preventDefault();
+        if (matched.id === "open_ai") openWindow("ai");
+        else if (matched.id === "open_tasks") openWindow("tasks");
+        else if (matched.id === "open_notes") openWindow("notes");
+        else if (matched.id === "open_calc") openWindow("calc");
+        else if (matched.id === "open_files") openWindow("files");
+        else if (matched.id === "cascade") cascadeWindows();
       }
     };
 
@@ -665,7 +978,22 @@ export default function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [soundEnabled]);
+  }, [shortcuts, soundEnabled]);
+
+  if (!userSession) {
+    return (
+      <LoginScreen
+        language={language}
+        onChangeLanguage={handleLanguageChange}
+        onLoginSuccess={(user) => {
+          setUserSession(user);
+          if (user.username === "admin") handleChangeProfile("default");
+          else if (user.username === "sales") handleChangeProfile("sales");
+          else if (user.username === "keeper") handleChangeProfile("inventory_keeper");
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -674,7 +1002,7 @@ export default function App() {
         wallpaper.startsWith("url(") ? "" : wallpaper
       }`}
       style={wallpaper.startsWith("url(") ? { backgroundImage: wallpaper, backgroundSize: "cover", backgroundPosition: "center" } : {}}
-      dir="rtl"
+      dir={language === "ar" ? "rtl" : "ltr"}
     >
       {/* BACKGROUND GRAPHIC (Professional Polish Style) */}
       <div className="absolute inset-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none opacity-60 dark:opacity-30"></div>
@@ -687,7 +1015,7 @@ export default function App() {
               <Layers className="w-5 h-5 text-white" />
             </div>
             <span className="font-bold text-lg tracking-tight text-slate-800 dark:text-slate-100">
-              مساحة العمل الاحترافية
+              {getTranslation("appName", language)}
             </span>
           </div>
 
@@ -696,28 +1024,30 @@ export default function App() {
           {/* Controls to re-align windows */}
           <button
             onClick={cascadeWindows}
-            title="ترتيب النوافذ تلقائياً"
+            title={getTranslation("cascadeWindows", language)}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/40 border border-transparent dark:border-blue-800/50 rounded-lg transition"
           >
             <LayoutGrid size={13} />
-            ترتيب النوافذ
+            {getTranslation("cascadeWindows", language)}
           </button>
         </div>
 
         {/* Universal Spotlight Search Bar */}
         <div className="relative flex-1 max-w-xs md:max-w-md mx-4 z-50">
           <div className="relative">
-            <Search size={14} className="absolute right-3 top-2.5 text-slate-400 animate-pulse" />
+            <Search size={14} className={`absolute ${language === "ar" ? "right-3" : "left-3"} top-2.5 text-slate-400 animate-pulse`} />
             <input
               ref={searchInputRef}
               type="text"
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
               onFocus={() => setIsSearchFocused(true)}
-              placeholder="البحث السريع عن أداة، ملاحظة، أو ملف... (Ctrl+K)"
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 rounded-xl pr-9 pl-16 py-1.5 text-xs focus:outline-none text-slate-800 dark:text-slate-200 transition-all duration-200 shadow-sm placeholder-slate-400 dark:placeholder-slate-500"
+              placeholder={getTranslation("searchPlaceholder", language)}
+              className={`w-full bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 rounded-xl py-1.5 text-xs focus:outline-none text-slate-800 dark:text-slate-200 transition-all duration-200 shadow-sm placeholder-slate-400 dark:placeholder-slate-500 ${
+                language === "ar" ? "pr-9 pl-16 text-right" : "pl-9 pr-16 text-left"
+              }`}
             />
-            <div className="absolute left-3 top-2 flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-200/70 dark:bg-slate-800 rounded text-[9px] text-slate-500 dark:text-slate-400 font-mono pointer-events-none select-none">
+            <div className={`absolute ${language === "ar" ? "left-3" : "right-3"} top-2 flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-200/70 dark:bg-slate-800 rounded text-[9px] text-slate-500 dark:text-slate-400 font-mono pointer-events-none select-none`}>
               <span>Ctrl</span>
               <span>+</span>
               <span>K</span>
@@ -738,13 +1068,13 @@ export default function App() {
               
               <div className="absolute right-0 left-0 mt-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-xl max-h-96 overflow-y-auto z-50 p-2 space-y-1 scrollbar-thin">
                 <div className="px-2.5 py-1 text-[9px] font-bold text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800 mb-1 flex justify-between">
-                  <span>{globalSearch ? "نتائج البحث المطابقة" : "اقتراحات مساحة العمل والأدوات"}</span>
-                  <span>{searchResults.length} عنصر</span>
+                  <span>{globalSearch ? (language === "ar" ? "نتائج البحث المطابقة" : "Matching search results") : (language === "ar" ? "اقتراحات مساحة العمل والأدوات" : "Workspace suggestions & tools")}</span>
+                  <span>{searchResults.length} {language === "ar" ? "عنصر" : "items"}</span>
                 </div>
                 
                 {searchResults.length === 0 ? (
                   <div className="text-center py-5 text-xs text-slate-400 dark:text-slate-500">
-                    لا توجد نتائج مطابقة لـ "{globalSearch}"
+                    {language === "ar" ? `لا توجد نتائج مطابقة لـ "${globalSearch}"` : `No results matching "${globalSearch}"`}
                   </div>
                 ) : (
                   searchResults.map((res) => {
@@ -753,7 +1083,9 @@ export default function App() {
                       <button
                         key={res.id}
                         onClick={res.onClick}
-                        className="w-full flex items-center gap-3 p-2 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 rounded-xl text-right transition group cursor-pointer"
+                        className={`w-full flex items-center gap-3 p-2 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 rounded-xl transition group cursor-pointer ${
+                          language === "ar" ? "text-right" : "text-left"
+                        }`}
                       >
                         <div className={`p-2 rounded-xl shrink-0 transition ${
                           res.type === "app" ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 group-hover:bg-blue-100/80 dark:group-hover:bg-blue-900/60" :
@@ -777,9 +1109,9 @@ export default function App() {
                           res.type === "task" ? "bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900 text-indigo-600 dark:text-indigo-400" :
                           "bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900 text-emerald-600 dark:text-emerald-400"
                         }`}>
-                          {res.type === "app" ? "أداة" :
-                           res.type === "note" ? "ملاحظة" :
-                           res.type === "task" ? "مهمة" : "ملف"}
+                          {res.type === "app" ? (language === "ar" ? "أداة" : "Tool") :
+                           res.type === "note" ? (language === "ar" ? "ملاحظة" : "Note") :
+                           res.type === "task" ? (language === "ar" ? "مهمة" : "Task") : (language === "ar" ? "ملف" : "File")}
                         </span>
                       </button>
                     );
@@ -804,17 +1136,64 @@ export default function App() {
             <span>{time}</span>
           </div>
 
+          {/* Active User Account Switcher Button */}
+          {userSession && (
+            <button
+              onClick={() => setShowSwitchAccountModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-violet-50 dark:hover:bg-violet-950/20 hover:border-violet-200 dark:hover:border-violet-800/60 transition duration-200 cursor-pointer text-right"
+              title={language === "ar" ? "إدارة وتبديل الحسابات" : "Manage & Switch Accounts"}
+            >
+              <div className="w-5.5 h-5.5 rounded-full bg-violet-600 text-white flex items-center justify-center font-bold text-[10px]">
+                {userSession.fullName.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="hidden sm:flex flex-col items-start leading-none text-right">
+                <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200">{userSession.fullName}</span>
+                <span className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">@{userSession.username}</span>
+              </div>
+            </button>
+          )}
+
           {/* Audio Toggler */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-lg border transition ${
+            className={`p-2 rounded-lg border transition cursor-pointer ${
               soundEnabled
                 ? "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                 : "bg-red-50 dark:bg-red-950/30 border-red-100 dark:border-red-900/50 text-red-500 dark:text-red-400"
             }`}
-            title={soundEnabled ? "كتم المؤثرات الصوتية" : "تفعيل المؤثرات الصوتية"}
+            title={soundEnabled ? (language === "ar" ? "كتم المؤثرات الصوتية" : "Mute Sound") : (language === "ar" ? "تفعيل المؤثرات الصوتية" : "Enable Sound")}
           >
             {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+          </button>
+
+          {/* Lock Screen Toggler */}
+          <button
+            onClick={() => setIsScreenLocked(true)}
+            className="p-2 rounded-lg border bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-violet-500/10 hover:text-violet-500 transition cursor-pointer"
+            title={language === "ar" ? "قفل الشاشة" : "Lock Screen"}
+          >
+            <Lock size={15} />
+          </button>
+
+          {/* Logout Trigger */}
+          <button
+            onClick={() => {
+              safeStorage.removeItem("workspace_active_user");
+              setUserSession(null);
+              // Dispatch system-toast event immediately
+              window.dispatchEvent(
+                new CustomEvent("system-toast", {
+                  detail: { 
+                    message: language === "ar" ? "تم تسجيل الخروج بنجاح!" : "Logged out successfully!", 
+                    type: "info" 
+                  },
+                })
+              );
+            }}
+            className="p-2 rounded-lg border bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-red-500/10 hover:text-red-500 transition cursor-pointer"
+            title={language === "ar" ? "تسجيل الخروج" : "Log Out"}
+          >
+            <LogOut size={15} />
           </button>
         </div>
       </header>
@@ -864,6 +1243,8 @@ export default function App() {
                     return <Receipt size={size} />;
                   case "TrendingUp":
                     return <TrendingUp size={size} />;
+                  case "Activity":
+                    return <Activity size={size} />;
                   default:
                     return <Sparkles size={size} />;
                 }
@@ -900,6 +1281,8 @@ export default function App() {
                       ? "الفواتير"
                       : win.id === "reports"
                       ? "التقارير"
+                      : win.id === "system"
+                      ? "النظام"
                       : "الملفات"}
                   </span>
 
@@ -928,6 +1311,18 @@ export default function App() {
 
         {/* WORKSPACE AREA (Holds windows) */}
         <main className="flex-1 relative overflow-hidden p-6" id="desktop-window-container">
+          {/* Desktop Shortcuts Layer */}
+          <DesktopIcons
+            language={language}
+            desktopIcons={desktopIcons}
+            onUpdateIcons={handleUpdateDesktopIcons}
+            openWindow={openWindow}
+          />
+
+          {/* Dynamic blur overlay when any window is open to enhance focus */}
+          {windows.some((w) => w.isOpen && !w.isMinimized) && (
+            <div className="absolute inset-0 bg-slate-900/10 dark:bg-slate-950/15 backdrop-blur-[6px] pointer-events-none z-[5] transition-all duration-300 animate-fade-in" />
+          )}
           {/* Welcome Dashboard Background */}
           {windows.every((w) => !w.isOpen) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-slate-50/40 dark:bg-slate-950/40">
@@ -975,6 +1370,13 @@ export default function App() {
                     <TrendingUp size={13} />
                     لوحة التقارير والتحليلات المالية
                   </button>
+                  <button
+                    onClick={() => openWindow("system")}
+                    className="col-span-2 flex items-center justify-center gap-1.5 py-2 bg-slate-800 hover:bg-slate-750 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer border border-slate-700"
+                  >
+                    <Activity size={13} className="text-emerald-400" />
+                    لوحة تحكم النظام ومراقبة الأداء
+                  </button>
                 </div>
               </div>
             </div>
@@ -1007,16 +1409,24 @@ export default function App() {
                     onToggleSound={() => setSoundEnabled(!soundEnabled)}
                     isDarkMode={isDarkMode}
                     onToggleTheme={handleToggleTheme}
+                    autoTheme={autoTheme}
+                    onToggleAutoTheme={handleToggleAutoTheme}
                     activeCurrencyCode={activeCurrencyCode}
                     onChangeCurrencyCode={handleChangeCurrencyCode}
                     activeProfile={activeProfile}
                     onChangeProfile={handleChangeProfile}
+                    language={language}
+                    onChangeLanguage={handleLanguageChange}
+                    onLockScreen={() => setIsScreenLocked(true)}
+                    shortcuts={shortcuts}
+                    onUpdateShortcuts={handleUpdateShortcuts}
                   />
                 )}
                 {win.id === "files" && <AppFiles />}
                 {win.id === "inventory" && <AppInventory activeCurrencyCode={activeCurrencyCode} activeProfile={activeProfile} />}
                 {win.id === "invoices" && <AppInvoices activeCurrencyCode={activeCurrencyCode} activeProfile={activeProfile} />}
                 {win.id === "reports" && <AppReports activeCurrencyCode={activeCurrencyCode} activeProfile={activeProfile} />}
+                {win.id === "system" && <AppSystemDashboard windows={windows} onCloseWindow={closeWindow} />}
               </DesktopWindow>
             );
           })}
@@ -1058,8 +1468,26 @@ export default function App() {
                   <Info size={14} />
                 )}
               </div>
-              <div className="flex-1 text-xs font-bold leading-normal">
-                {toast.message}
+              <div className="flex-1 flex flex-col text-right">
+                <span className="text-xs font-bold leading-normal">{toast.message}</span>
+                {toast.isTaskAlert && (
+                  <div className="flex gap-1.5 mt-2 pointer-events-auto">
+                    <button
+                      onClick={() => handleCompleteTaskFromToast(toast.taskId!, toast.id)}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-extrabold transition flex items-center gap-0.5 cursor-pointer shadow-sm"
+                    >
+                      <Check size={11} />
+                      تم الإنجاز
+                    </button>
+                    <button
+                      onClick={() => handleSnoozeTaskFromToast(toast.taskId!, toast.id)}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] font-extrabold transition flex items-center gap-0.5 cursor-pointer shadow-sm"
+                    >
+                      <Clock size={11} />
+                      تأجيل (5 د)
+                    </button>
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => setActiveToasts((prev) => prev.filter((t) => t.id !== toast.id))}
@@ -1085,7 +1513,7 @@ export default function App() {
               <button
                 onClick={() => {
                   setNotificationHistory([]);
-                  localStorage.removeItem("workspace_notifications_history");
+                  safeStorage.removeItem("workspace_notifications_history");
                 }}
                 className="text-[9px] font-bold text-red-400 hover:text-red-350 bg-red-950/30 border border-red-900/40 px-2 py-1 rounded transition flex items-center gap-1 cursor-pointer"
               >
@@ -1141,7 +1569,7 @@ export default function App() {
                       onClick={() => {
                         const updated = notificationHistory.filter((n) => n.id !== item.id);
                         setNotificationHistory(updated);
-                        localStorage.setItem("workspace_notifications_history", JSON.stringify(updated));
+                        safeStorage.setItem("workspace_notifications_history", JSON.stringify(updated));
                       }}
                       className="text-slate-600 hover:text-slate-400 transition"
                     >
@@ -1211,6 +1639,38 @@ export default function App() {
           © {new Date().getFullYear()} نظام النوافذ التفاعلي
         </div>
       </footer>
+
+      {isScreenLocked && (
+        <LockScreen
+          language={language}
+          fullName={userSession?.fullName || "المدير العام"}
+          username={userSession?.username || "admin"}
+          onUnlock={() => setIsScreenLocked(false)}
+        />
+      )}
+
+      {showSwitchAccountModal && userSession && (
+        <SwitchAccountModal
+          language={language}
+          currentUser={userSession}
+          onClose={() => setShowSwitchAccountModal(false)}
+          onSwitchSuccess={(newUser) => {
+            safeStorage.setItem("workspace_active_user", JSON.stringify(newUser));
+            setUserSession(newUser);
+
+            // Sync user role with profiles to align legacy components
+            if (newUser.username === "admin") handleChangeProfile("default");
+            else if (newUser.username === "sales") handleChangeProfile("sales");
+            else if (newUser.username === "keeper") handleChangeProfile("inventory_keeper");
+            else handleChangeProfile(newUser.username);
+
+            // Fast reload so all components mount clean and read correct isolated localStorage keys
+            setTimeout(() => {
+              window.location.reload();
+            }, 1000);
+          }}
+        />
+      )}
     </div>
   );
 }

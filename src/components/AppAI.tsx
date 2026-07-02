@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Sparkles, AlertCircle, Trash2, RefreshCw } from "lucide-react";
-import { ChatMessage } from "../types";
+import { Send, Bot, User, Sparkles, AlertCircle, Trash2, RefreshCw, FileText, Check } from "lucide-react";
+import { ChatMessage, Task } from "../types";
 import { motion } from "motion/react";
+import { triggerToast } from "../utils/toast";
 
 export default function AppAI() {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -32,6 +33,272 @@ export default function AppAI() {
     localStorage.setItem("workspace_ai_chat", JSON.stringify(messages));
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    const handleAnalyzeContext = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { id, title } = customEvent.detail;
+      
+      const activeProfile = localStorage.getItem("workspace_active_profile") || "default";
+      const getProfileKey = (key: string) => {
+        if (!activeProfile || activeProfile === "default") return key;
+        return `${activeProfile}_${key}`;
+      };
+
+      let prompt = "";
+      
+      if (id === "invoices") {
+        const saved = localStorage.getItem(getProfileKey("workspace_invoices"));
+        let invoices: any[] = [];
+        try { invoices = saved ? JSON.parse(saved) : []; } catch (err) {}
+        
+        const totalSales = invoices.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0);
+        const paidCount = invoices.filter(inv => inv.status === "paid").length;
+        const unpaidCount = invoices.filter(inv => inv.status === "unpaid").length;
+        
+        prompt = `أرجو تحليل قائمة الفواتير المالية الحالية في النظام وتقديم قراءة تحليلية للمبيعات والتحصيلات، واقترح استراتيجيات لتحسين التدفق المالي.\n\nالبيانات الإجمالية:\n- إجمالي الفواتير: ${invoices.length} فواتير.\n- المبيعات الإجمالية: ${totalSales.toLocaleString()} ريال.\n- الفواتير المدفوعة: ${paidCount}\n- الفواتير غير المدفوعة/المستحقة: ${unpaidCount}\n\nتفاصيل الفواتير الحالية:\n` +
+          invoices.map((inv: any) => `- فاتورة رقم ${inv.invoiceNumber} للعميل ${inv.customerName} بقيمة ${inv.totalAmount} ريال (${inv.status === "paid" ? "مدفوعة" : "غير مدفوعة"}) تاريخ: ${inv.date}`).join("\n");
+      } 
+      else if (id === "inventory") {
+        const saved = localStorage.getItem(getProfileKey("workspace_inventory"));
+        let inventory: any[] = [];
+        try { inventory = saved ? JSON.parse(saved) : []; } catch (err) {}
+        
+        const totalItems = inventory.reduce((sum, item) => sum + (item.quantity || 0), 0);
+        const totalValue = inventory.reduce((sum, item) => sum + ((item.quantity || 0) * (item.price || 0)), 0);
+        const lowStock = inventory.filter(item => (item.quantity || 0) <= (item.minAlert || 5));
+        
+        prompt = `أرجو تحليل بيانات المخزون والمستودع الحالي في النظام وتقديم تقرير عن حالة المستودع، وتحديد المنتجات التي قاربت على النفاد، مع نصائح تنظيمية لتحسين إدارة المستودع.\n\nالبيانات الإجمالية للمستودع:\n- إجمالي المنتجات المسجلة: ${inventory.length}\n- إجمالي عدد القطع المتوفرة: ${totalItems} قطع.\n- القيمة الإجمالية للمخزون: ${totalValue.toLocaleString()} ريال.\n- منتجات منخفضة المخزون: ${lowStock.length} منتجات.\n\nتفاصيل المنتجات المتوفرة:\n` +
+          inventory.map((item: any) => `- ${item.name} (${item.category}): الكمية المتوفرة: ${item.quantity} (حد الإنذار: ${item.minAlert})، سعر القطعة: ${item.price} ريال`).join("\n");
+      } 
+      else if (id === "tasks") {
+        const saved = localStorage.getItem("workspace_tasks");
+        let tasks: any[] = [];
+        try { tasks = saved ? JSON.parse(saved) : []; } catch (err) {}
+        
+        const completed = tasks.filter(t => t.completed).length;
+        const pending = tasks.filter(t => !t.completed).length;
+        
+        prompt = `أرجو تحليل قائمة المهام الحالية وتوزيعها، وتصميم خطة عمل نموذجية مخصصة لإنجاز المهام المتراكمة وتنظيم وقتي بشكل أفضل.\n\nالبيانات الإحصائية:\n- إجمالي المهام: ${tasks.length}\n- المهام المنجزة: ${completed}\n- المهام المعلقة: ${pending}\n\nقائمة المهام:\n` +
+          tasks.map((t: any) => `- ${t.text} [التصنيف: ${t.category}] (${t.completed ? "منجزة" : "معلقة"})${t.dueDate ? ` - تاريخ الاستحقاق: ${t.dueDate}` : ""}${t.recurrence && t.recurrence !== "none" ? ` - التكرار: ${t.recurrence}` : ""}`).join("\n");
+      }
+      else if (id === "notes") {
+        const activeId = localStorage.getItem("workspace_active_note_id");
+        const savedNotesRaw = localStorage.getItem("workspace_notes") || "[]";
+        let notesList: any[] = [];
+        try { notesList = JSON.parse(savedNotesRaw); } catch (e) {}
+
+        const activeNote = notesList.find((n) => n.id === activeId) || notesList[0];
+        if (!activeNote || !activeNote.content.trim()) {
+          triggerToast(
+            localStorage.getItem("workspace_language") === "ar"
+              ? "يرجى كتابة وفتح ملاحظة أولاً ليتمكن المساعد من تحليلها."
+              : "Please open a note with content first to analyze it.",
+            "warning"
+          );
+          return;
+        }
+        prompt = `يرجى قراءة وتحليل النص التالي المأخوذ من ملاحظتي النشطة بعنوان "${activeNote.title}" واستخراج جميع المهام المطلوبة أو الأفكار القابلة للتنفيذ بشكل مباشر.\n\nقدم ردك بتحليل مختصر للملاحظة أولاً، ثم اذكر المهام المستخرجة كقائمة في نهاية الرد بحيث تبدأ كل مهمة بسطر مستقل تماماً بالتنسيق التالي بالتفصيل:\n- [مهمة] نص المهمة (تصنيفها)\n\nالتصنيفات المتاحة هي: (عمل، شخصي، عاجل، أفكار) فقط.\n\nالنص المراد تحليله:\n${activeNote.content}`;
+      }
+      else if (id === "files") {
+        const saved = localStorage.getItem("workspace_files");
+        let items: any[] = [];
+        try { items = saved ? JSON.parse(saved) : []; } catch (err) {}
+        
+        prompt = `أرجو مراجعة وتحليل بنية المجلدات والملفات الحالية في مدير الملفات، وتقديم اقتراحات لتنظيم وتوثيق هذه الملفات لتسهيل الوصول للمستندات والعمل المشترك.\n\nهيكل الملفات والمستندات الحالي:\n` +
+          items.map((item: any) => `- [${item.type === "folder" ? "مجلد" : "ملف"}] ${item.name} (${item.type === "file" ? `الحجم: ${item.size || "0 B"}` : "مجلد فرعي"})${item.createdAt ? ` - تاريخ الإنشاء: ${item.createdAt}` : ""}`).join("\n");
+      }
+      else {
+        prompt = `أرجو مراجعة وتحليل نظام مساحة العمل النشط (${title}) وتقديم قراءة حول كيفية دمج عمليات ومميزات هذا التطبيق مع أهداف عملي الحالية.`;
+      }
+
+      if (prompt) {
+        triggerToast(
+          localStorage.getItem("workspace_language") === "ar"
+            ? `جاري استيراد سياق نافذة "${title}" للتحليل...`
+            : `Importing context from window "${title}"...`,
+          "info"
+        );
+        handleSend(prompt);
+      }
+    };
+
+    window.addEventListener("analyze_window_context", handleAnalyzeContext);
+    return () => {
+      window.removeEventListener("analyze_window_context", handleAnalyzeContext);
+    };
+  }, [messages]);
+
+  // Direct Task Extraction Logic
+  interface ExtractedTask {
+    text: string;
+    category: "work" | "personal" | "ideas" | "urgent";
+  }
+
+  const parseExtractedTasks = (text: string): ExtractedTask[] => {
+    const lines = text.split("\n");
+    const extracted: ExtractedTask[] = [];
+    
+    // Matches lines like: - [مهمة] نص المهمة (عمل) or - [task] task text (work)
+    const taskRegex = /^-\s*\[(?:مهمة|task)\]\s*(.+?)\s*(?:\((عمل|شخصي|عاجل|أفكار|work|personal|urgent|ideas)\))?$/i;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const match = trimmed.match(taskRegex);
+      if (match) {
+        const taskText = match[1].trim();
+        const categoryRaw = match[2]?.toLowerCase() || "ideas";
+        
+        let category: "work" | "personal" | "ideas" | "urgent" = "ideas";
+        if (categoryRaw === "عمل" || categoryRaw === "work") category = "work";
+        else if (categoryRaw === "شخصي" || categoryRaw === "personal") category = "personal";
+        else if (categoryRaw === "عاجل" || categoryRaw === "urgent") category = "urgent";
+        else if (categoryRaw === "أفكار" || categoryRaw === "ideas") category = "ideas";
+
+        extracted.push({ text: taskText, category });
+      }
+    }
+    return extracted;
+  };
+
+  const handleAddTaskDirectly = (text: string, category: "work" | "personal" | "ideas" | "urgent") => {
+    try {
+      const savedTasksRaw = localStorage.getItem("workspace_tasks") || "[]";
+      let currentTasks: Task[] = [];
+      try {
+        currentTasks = JSON.parse(savedTasksRaw);
+      } catch (e) {
+        currentTasks = [];
+      }
+
+      const newTask: Task = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+        text,
+        completed: false,
+        category,
+        createdAt: new Date().toISOString()
+      };
+
+      const updatedTasks = [newTask, ...currentTasks];
+      localStorage.setItem("workspace_tasks", JSON.stringify(updatedTasks));
+
+      // Dispatch event to refresh AppTasks UI dynamically
+      window.dispatchEvent(new CustomEvent("workspace-update"));
+
+      triggerToast(
+        localStorage.getItem("workspace_language") === "ar"
+          ? `تمت إضافة المهمة بنجاح: "${text}"`
+          : `Task added successfully: "${text}"`,
+        "success"
+      );
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAnalyzeOpenNote = () => {
+    try {
+      const activeId = localStorage.getItem("workspace_active_note_id");
+      const savedNotesRaw = localStorage.getItem("workspace_notes") || "[]";
+      let notesList: any[] = [];
+      try {
+        notesList = JSON.parse(savedNotesRaw);
+      } catch (e) {
+        notesList = [];
+      }
+
+      const activeNote = notesList.find((n) => n.id === activeId) || notesList[0];
+      if (!activeNote || !activeNote.content.trim()) {
+        triggerToast(
+          localStorage.getItem("workspace_language") === "ar"
+            ? "يرجى كتابة وفتح ملاحظة أولاً ليتمكن المساعد من تحليلها."
+            : "Please open a note with content first to analyze it.",
+          "warning"
+        );
+        return;
+      }
+
+      // Format custom instructions prompt
+      const prompt = `يرجى قراءة وتحليل النص التالي المأخوذ من ملاحظتي النشطة بعنوان "${activeNote.title}" واستخراج جميع المهام المطلوبة أو الأفكار القابلة للتنفيذ بشكل مباشر.\n\nقدم ردك بتحليل مختصر للملاحظة أولاً، ثم اذكر المهام المستخرجة كقائمة في نهاية الرد بحيث تبدأ كل مهمة بسطر مستقل تماماً بالتنسيق التالي بالتفصيل:\n- [مهمة] نص المهمة (تصنيفها)\n\nالتصنيفات المتاحة هي: (عمل، شخصي، عاجل، أفكار) فقط.\n\nمثال:\n- [مهمة] مراجعة التقرير المالي لشهر يوليو (عمل)\n- [مهمة] الاتصال بالطبيب لحجز موعد (شخصي)\n\nالنص المراد تحليله:\n${activeNote.content}`;
+
+      handleSend(prompt);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const ExtractedTasksPanel = ({ text }: { text: string }) => {
+    const extracted = parseExtractedTasks(text);
+    const [addedIndices, setAddedIndices] = useState<Record<number, boolean>>({});
+
+    if (extracted.length === 0) return null;
+
+    const handleAdd = (task: ExtractedTask, index: number) => {
+      handleAddAddTaskDirectly(task, index);
+    };
+
+    const handleAddAddTaskDirectly = (task: ExtractedTask, index: number) => {
+      handleAddTaskDirectly(task.text, task.category);
+      setAddedIndices(prev => ({ ...prev, [index]: true }));
+    };
+
+    return (
+      <div className="mt-3 p-3 bg-slate-950/60 border border-slate-850 rounded-xl space-y-2.5" dir="rtl">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold text-teal-400">
+          <Sparkles size={13} className="animate-pulse" />
+          <span>المهام المستخرجة ذكياً:</span>
+        </div>
+        <div className="space-y-2">
+          {extracted.map((task, idx) => {
+            const isAdded = addedIndices[idx];
+            const catColors = {
+              work: "bg-blue-600/10 text-blue-400 border-blue-500/20",
+              personal: "bg-emerald-600/10 text-emerald-400 border-emerald-500/20",
+              urgent: "bg-rose-600/10 text-rose-400 border-rose-500/20",
+              ideas: "bg-amber-600/10 text-amber-400 border-amber-500/20"
+            };
+            const catNamesAr = {
+              work: "عمل",
+              personal: "شخصي",
+              urgent: "عاجل",
+              ideas: "أفكار"
+            };
+
+            return (
+              <div key={idx} className="flex items-center justify-between gap-3 p-2 bg-slate-900/60 border border-slate-800/50 rounded-lg">
+                <div className="flex items-center gap-2 flex-1">
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded border ${catColors[task.category]}`}>
+                    {catNamesAr[task.category]}
+                  </span>
+                  <span className="text-xs font-medium text-slate-200 line-clamp-2">{task.text}</span>
+                </div>
+                <button
+                  onClick={() => handleAdd(task, idx)}
+                  disabled={isAdded}
+                  className={`px-2.5 py-1 rounded text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    isAdded
+                      ? "bg-slate-800 text-slate-500 border border-slate-750"
+                      : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-900/20"
+                  }`}
+                >
+                  {isAdded ? (
+                    <>
+                      <span>تمت الإضافة</span>
+                      <Check size={10} />
+                    </>
+                  ) : (
+                    <>
+                      <span>إضافة كـ مهمة</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -113,6 +380,21 @@ export default function AppAI() {
 
   return (
     <div id="app-ai-container" className="flex flex-col h-full bg-slate-900/40 text-slate-100 font-sans" dir="rtl">
+      {/* Active Note Analyzer Header */}
+      <div className="p-2.5 bg-slate-950/40 border-b border-slate-800/80 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-1.5">
+          <FileText size={14} className="text-teal-400" />
+          <span className="text-[11px] font-bold text-slate-300">تحليل الملاحظات الذكي</span>
+        </div>
+        <button
+          onClick={handleAnalyzeOpenNote}
+          className="flex items-center gap-1 px-3 py-1.5 bg-teal-600/10 hover:bg-teal-600 border border-teal-500/20 hover:border-teal-500 text-teal-400 hover:text-white rounded-lg text-[10px] font-bold transition shadow-sm cursor-pointer"
+        >
+          <Sparkles size={11} className="animate-pulse" />
+          <span>استخراج المهام من الملاحظة المفتوحة</span>
+        </button>
+      </div>
+
       {/* Messages Window */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-700">
         {messages.map((msg) => (
@@ -140,6 +422,10 @@ export default function AppAI() {
               >
                 {msg.text}
               </div>
+
+              {/* Show Extracted Tasks Checklist */}
+              {msg.role === "assistant" && <ExtractedTasksPanel text={msg.text} />}
+
               <span className={`text-[10px] mt-1 text-slate-400 px-1 ${msg.role === "user" ? "text-right" : "text-left"}`}>
                 {msg.timestamp}
               </span>
